@@ -13,10 +13,12 @@
 //---------------------------------------------------------------------------
 // Defines
 //---------------------------------------------------------------------------
-#define DEBUG         1
+#define DEBUG         0
 #define FPG_AVG_COUNT 60
 #define MAX_NUM_USERS 4
-#define MAX_NUM_SKELETONS 15
+#define MAX_NUM_SKELETONS 24
+#define CONFIDENCE_THRESHOLD 0.5
+#define SMOOTHING 0.8
 
 #define CHECK_RC(nRetVal, what)                                     \
     if (nRetVal != XN_STATUS_OK)                                    \
@@ -38,6 +40,11 @@ XnChar g_strPose[20] = "";
 bool showDepthImg = false;
 bool showFPS = false;
 
+
+struct joint_s {
+    XnPoint3D point;
+    XnConfidence confidence;
+};
 //---------------------------------------------------------------------------
 // Code
 //---------------------------------------------------------------------------
@@ -145,10 +152,36 @@ int handleKeyEvent( char keyEvent )
     return value;
 }
 
-int main()
+void addLine( Mat imgSkeleton, joint_s *skeletonPoint, int start, int end, XnFloat confidence_threshold )
+{
+    start--;
+    end--;
+    if ( skeletonPoint[start].point.X <= 0 || skeletonPoint[start].point.Y <= 0 || skeletonPoint[end].point.X <= 0 || skeletonPoint[end].point.Y <= 0 ) {
+        return;
+    } else {
+        if ( skeletonPoint[start].confidence < confidence_threshold || skeletonPoint[end].confidence < confidence_threshold) {
+            line( imgSkeleton, Point( skeletonPoint[start].point.X, skeletonPoint[start].point.Y ), Point( skeletonPoint[end].point.X, skeletonPoint[end].point.Y ), Scalar( 150, 200, 150 ), 1, CV_AA, 0 );
+        } else {
+            line( imgSkeleton, Point( skeletonPoint[start].point.X, skeletonPoint[start].point.Y ), Point( skeletonPoint[end].point.X, skeletonPoint[end].point.Y ), Scalar( 150, 200, 150 ), 4, CV_AA, 0 );
+        }
+    }
+    return;
+}
+
+int main( int argc, char *argv[] )
 {
     XnStatus nRetVal = XN_STATUS_OK;
     EnumerationErrors errors;
+    XnFloat confidence = CONFIDENCE_THRESHOLD;
+    XnFloat smoothing = SMOOTHING;
+    if ( 2 == argc ) {
+        // confidence, no smoothing
+        confidence = atof( argv[1] );
+    } else if ( 3 == argc ) {
+        // confidence, smoothing
+        confidence = atof( argv[1] );
+        smoothing = atof( argv[2] );
+    }
 
     Context mContext;
     nRetVal = mContext.Init();
@@ -220,6 +253,7 @@ int main()
     }
 
     g_UserGenerator.GetSkeletonCap().SetSkeletonProfile( XN_SKEL_PROFILE_ALL );
+    g_UserGenerator.GetSkeletonCap().SetSmoothing(smoothing);
 
     nRetVal = mContext.StartGeneratingAll();
     CHECK_RC( nRetVal, "StartGenerating" );
@@ -234,28 +268,12 @@ int main()
         printf( "Assume calibration pose\n" );
     }
 
-    int arr_skeleton_part[MAX_NUM_SKELETONS] =
-    {
-        XN_SKEL_HEAD,           //0
-        XN_SKEL_NECK,           //1
-        XN_SKEL_TORSO,          //2
-        XN_SKEL_LEFT_SHOULDER,  //3
-        XN_SKEL_RIGHT_SHOULDER, //4
-        XN_SKEL_LEFT_ELBOW,     //5
-        XN_SKEL_RIGHT_ELBOW,    //6
-        XN_SKEL_LEFT_HAND,      //7
-        XN_SKEL_RIGHT_HAND,     //8
-        XN_SKEL_LEFT_HIP,       //9
-        XN_SKEL_RIGHT_HIP,      //10
-        XN_SKEL_LEFT_KNEE,      //11
-        XN_SKEL_RIGHT_KNEE,     //12
-        XN_SKEL_LEFT_FOOT,      //13
-        XN_SKEL_RIGHT_FOOT      //14
-    };
-    char *str_skeleton_name[] = {"Head", "Neck", "Torso", "Left shoulder", "Right shoulder", "Left Elbow", "Right Elbow",
-                                 "Left hand", "Right Hand", "Left hip", "Right hip", "Left knee", "Right, knee",
-                                 "Left foot", "Right foot"
-                                };
+    char *str_skeleton_name[] = {
+        "HEAD", "NECK", "TORSO", "WAIST",
+        "LEFT_COLLAR", "LEFT_SHOULDER", "LEFT_ELBOW", "LEFT_WRIST", "LEFT_HAND", "LEFT_FINGERTIP",
+        "RIGHT_COLLAR", "RIGHT_SHOULDER", "RIGHT_ELBOW", "RIGHT_WRIST", "RIGHT_HAND", "RIGHT_FINGERTIP",
+        "LEFT_HIP", "LEFT_KNEE", "LEFT_ANKLE", "LEFT_FOOT",
+        "RIGHT_HIP", "RIGHT_KNEE", "RIGHT_ANKLE", "RIGHT_FOOT" };
     while ( true )
     {
         mContext.WaitOneUpdateAll( g_UserGenerator );
@@ -279,38 +297,57 @@ int main()
                 continue;
             }
             // Print Head  coordinate
-            XnPoint3D skeletonPoint[MAX_NUM_SKELETONS] = {-1};
-            for ( int s = 0; s < MAX_NUM_SKELETONS ; s++ )
+            XnUInt16 nJoints = 24;
+            XnSkeletonJoint pJoints[24];
+            g_UserGenerator.GetSkeletonCap().EnumerateActiveJoints( pJoints, nJoints );
+            joint_s skeletonPoint[MAX_NUM_SKELETONS] = { -1, 0 };
+            for ( int s = 0; s < nJoints ; s++ )
             {
-                g_UserGenerator.GetSkeletonCap().GetSkeletonJoint( aUsers[i], ( XnSkeletonJoint ) arr_skeleton_part[s], skeletonJoint );
-                if ( skeletonJoint.position.fConfidence >=  0.5f || skeletonJoint.orientation.fConfidence >= 0.5f )
+                g_UserGenerator.GetSkeletonCap().GetSkeletonJoint( aUsers[i], ( XnSkeletonJoint ) pJoints[s], skeletonJoint );
                 {
                     XnPoint3D pt = skeletonJoint.position.position;
                     g_DepthGenerator.ConvertRealWorldToProjective( 1, &pt, &pt );
-                    skeletonPoint[s] = pt;
+                    skeletonPoint[s].point = pt;
+                    skeletonPoint[s].confidence = skeletonJoint.position.fConfidence;
+#if DEBUG
                     printf( "user %d: %s at (%6.2f,%6.2f,%6.2f)\n", aUsers[i], str_skeleton_name[s], pt.X, pt.Y, pt.Z );
-                    circle( img8bitDepth, Point2f( pt.X, pt.Y ), 10, Scalar( 200, 150, 150 ) );
-                    circle( imgSkeleton, Point2f( pt.X, pt.Y ), 10, Scalar( 200, 150, 150 ) );
+#endif
+                    circle( img8bitDepth, Point2f( pt.X, pt.Y ), 10, Scalar( 200, 150, 150 ), CV_FILLED, CV_AA );
+                    circle( imgSkeleton, Point2f( pt.X, pt.Y ), 5, Scalar( 150, 200, 150 ), CV_FILLED, CV_AA );
+#if DEBUG
+                    cv::putText( img8bitDepth, str_skeleton_name[s], Point( pt.X, pt.Y ), FONT_ITALIC, 0.4, Scalar( 0, 0, 0 ), 1, 7, false );
+                    cv::putText( imgSkeleton, str_skeleton_name[s], Point( pt.X, pt.Y ), FONT_ITALIC, 0.4, Scalar( 100, 100, 100 ), 1, 7, false );
+#endif
                 }
             }
-            Scalar color( 100, 50, 200 );
-            if ( skeletonPoint[0].X != -1 )
-            {
-                line( imgSkeleton, Point( skeletonPoint[0].X, skeletonPoint[0].Y ),  Point( skeletonPoint[1].X, skeletonPoint[1].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[1].X, skeletonPoint[1].Y ),  Point( skeletonPoint[2].X, skeletonPoint[2].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[3].X, skeletonPoint[3].Y ),  Point( skeletonPoint[4].X, skeletonPoint[4].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[3].X, skeletonPoint[3].Y ),  Point( skeletonPoint[5].X, skeletonPoint[5].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[5].X, skeletonPoint[5].Y ),  Point( skeletonPoint[7].X, skeletonPoint[7].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[4].X, skeletonPoint[4].Y ),  Point( skeletonPoint[6].X, skeletonPoint[6].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[6].X, skeletonPoint[6].Y ),  Point( skeletonPoint[8].X, skeletonPoint[8].Y ), color, 2, 8, 0 );
 
-                line( imgSkeleton, Point( skeletonPoint[2].X, skeletonPoint[2].Y ),  Point( skeletonPoint[9].X, skeletonPoint[9].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[2].X, skeletonPoint[2].Y ),  Point( skeletonPoint[10].X, skeletonPoint[10].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[9].X, skeletonPoint[9].Y ),  Point( skeletonPoint[11].X, skeletonPoint[11].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[10].X, skeletonPoint[10].Y ),  Point( skeletonPoint[12].X, skeletonPoint[12].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[11].X, skeletonPoint[11].Y ),  Point( skeletonPoint[13].X, skeletonPoint[13].Y ), color, 2, 8, 0 );
-                line( imgSkeleton, Point( skeletonPoint[12].X, skeletonPoint[12].Y ),  Point( skeletonPoint[14].X, skeletonPoint[14].Y ), color, 2, 8, 0 );
-            }
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_HEAD, XN_SKEL_NECK, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_NECK, XN_SKEL_TORSO, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_TORSO, XN_SKEL_WAIST, confidence );
+
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_TORSO, XN_SKEL_LEFT_COLLAR, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_COLLAR, XN_SKEL_LEFT_SHOULDER, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_SHOULDER, XN_SKEL_LEFT_ELBOW, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_ELBOW, XN_SKEL_LEFT_WRIST, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_WRIST, XN_SKEL_LEFT_HAND, confidence );
+            //addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_HAND, XN_SKEL_LEFT_FINGERTIP, confidence );
+
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_TORSO, XN_SKEL_RIGHT_COLLAR, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_COLLAR, XN_SKEL_RIGHT_SHOULDER, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_SHOULDER, XN_SKEL_RIGHT_ELBOW, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_ELBOW, XN_SKEL_RIGHT_WRIST, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_WRIST, XN_SKEL_RIGHT_HAND, confidence );
+            //addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_HAND, XN_SKEL_RIGHT_FINGERTIP, confidence );
+
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_WAIST, XN_SKEL_LEFT_HIP, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_HIP, XN_SKEL_LEFT_KNEE, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_KNEE, XN_SKEL_LEFT_ANKLE, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_LEFT_ANKLE, XN_SKEL_LEFT_FOOT, confidence );
+
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_WAIST, XN_SKEL_RIGHT_HIP, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_HIP, XN_SKEL_RIGHT_KNEE, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_KNEE, XN_SKEL_RIGHT_ANKLE, confidence );
+            addLine( imgSkeleton, skeletonPoint, XN_SKEL_RIGHT_ANKLE, XN_SKEL_RIGHT_FOOT, confidence );
         }
         if ( showFPS )
         {
