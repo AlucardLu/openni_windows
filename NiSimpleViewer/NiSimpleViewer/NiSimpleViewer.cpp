@@ -7,7 +7,7 @@ using namespace std;
 using namespace xn;
 using namespace cv;
 
-#define FPG_AVG_COUNT 60
+#define FPG_AVG_COUNT 120
 
 void onMouse(int Event, int x, int y, int flags, void* param);
 int Xres = 0;
@@ -22,6 +22,7 @@ enum showOp {
 
 int getUserInput() {
     int option = 0;
+    system("cls");
     cout << "1) Depth only" << endl;
     cout << "2) Image only" << endl;
     cout << "3) IR only" << endl;
@@ -55,12 +56,139 @@ int getUserInput() {
         return (DEPTH + IMAGE + IR);
         break;
     case 0:
-        return 0;
+        return -1;
         break;
     default:
         return getUserInput();
         break;
     };
+}
+
+void showResolution ( XnMapOutputMode* mapMode ) {
+    if ( XN_VGA_X_RES == mapMode->nXRes && XN_VGA_Y_RES == mapMode->nYRes ) {
+        cout << "VGA ( 640 x 480 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( XN_QVGA_X_RES == mapMode->nXRes && XN_QVGA_Y_RES == mapMode->nYRes ) {
+        cout << "QVGA ( 320 x 240 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( XN_QQVGA_X_RES == mapMode->nXRes && XN_QQVGA_Y_RES == mapMode->nYRes ) {
+        cout << "QQVGA ( 160 x 120 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( 80 == mapMode->nXRes && 60 == mapMode->nYRes ) {
+        cout << "QQQVGA ( 80 x 60 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( XN_1080P_X_RES == mapMode->nXRes && XN_1080P_Y_RES == mapMode->nYRes ) {
+        cout << "1080P ( 1920 x 1080 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( XN_720P_X_RES == mapMode->nXRes && XN_720P_Y_RES == mapMode->nYRes ) {
+        cout << "720P ( 1280 x 720 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( 2592 == mapMode->nXRes && 1944 == mapMode->nYRes ) {
+        cout << "FHD ( 2592 x 1944 ), FPS = " << mapMode->nFPS << endl;
+    } else if ( 1280 == mapMode->nXRes && 960 == mapMode->nYRes ) {
+        cout << "960P ( 1280 x 960 ), FPS = " << mapMode->nFPS << endl;
+    } else {
+        cout << "Unknown ( " << mapMode->nXRes << " x " << mapMode->nYRes << " ), FPS = " << mapMode->nFPS << endl;
+    }
+}
+
+void getResolutionSetting( int query_option, DepthGenerator* depthData, ImageGenerator* imageData, IRGenerator* irData,
+                          XnMapOutputMode* depthOutputMode, XnMapOutputMode* imageOutputMode, XnMapOutputMode* irOutputMode ) {
+    unsigned int depthModeCount = 0;
+    unsigned int imageModeCount = 0;
+    unsigned int irModeCount = 0;
+
+    system("cls");
+    XnStatus status;
+    if ( query_option & DEPTH ) {
+        depthModeCount = depthData->GetSupportedMapOutputModesCount();
+        if ( depthModeCount < 1 ) {
+            cout << "[Depth] Device doesn't support depth" << endl;
+        } else {
+            XnMapOutputMode* depthModes = new XnMapOutputMode[depthModeCount];
+            status = depthData->GetSupportedMapOutputModes( depthModes, depthModeCount );
+            if ( XN_STATUS_OK != status ) {
+                cout << "[Depth] GetSupportedMapOutputModes fail" << endl;
+            } else {
+                unsigned int answer = 1;
+                unsigned int i;
+                cout << endl << endl;
+                cout << "Available options for DEPTH : " << endl;
+                for ( i = 0; i < depthModeCount; i++ ) {
+                    cout << i + 1 << ") ";
+                    showResolution ( &depthModes[i] );
+                }
+                cout << ++i << ") Use SDK default " << endl;
+                cout << "Please select resolution and FPS for Depth : ";
+                cin >> answer;
+                if ( answer > depthModeCount ) {
+                    answer = 1;
+                }
+                depthOutputMode->nXRes = depthModes[answer-1].nXRes;
+                depthOutputMode->nYRes = depthModes[answer-1].nYRes;
+                depthOutputMode->nFPS = depthModes[answer-1].nFPS;
+            }
+            delete [] depthModes;
+        }
+    }
+    if ( query_option & IMAGE ) {
+        imageModeCount = imageData->GetSupportedMapOutputModesCount();
+        if ( imageModeCount < 1 ) {
+            cout << "[Image] Device doesn't support RGB" << endl;
+        } else {
+            XnMapOutputMode* imageModes;
+            imageModes = new XnMapOutputMode[imageModeCount];
+            status = imageData->GetSupportedMapOutputModes( imageModes, imageModeCount );
+            if ( XN_STATUS_OK != status ) {
+                cout << "[Image] GetSupportedMapOutputModes fail" << endl;
+            } else {
+                unsigned int answer = 1;
+                unsigned int i;
+                cout << endl << endl;
+                cout << "Available options for IMAGE : " << endl;
+                for ( i = 0; i < imageModeCount; i++ ) {
+                    cout << i + 1 << ") ";
+                    showResolution ( &imageModes[i] );
+                }
+                cout << ++i << ") Use SDK default " << endl;
+                cout << "Please select resolution and FPS for IMAGE : ";
+                cin >> answer;
+                if ( answer > imageModeCount ) {
+                    answer = 1;
+                }
+                imageOutputMode->nXRes = imageModes[answer-1].nXRes;
+                imageOutputMode->nYRes = imageModes[answer-1].nYRes;
+                imageOutputMode->nFPS = imageModes[answer-1].nFPS;
+            }
+            delete [] imageModes;
+        }
+    }
+    if ( query_option & IR ) {
+        irModeCount = irData->GetSupportedMapOutputModesCount();
+        if ( irModeCount < 1 ) {
+            cout << "[IR] Device doesn't support IR" << endl;
+        } else {
+            XnMapOutputMode* irModes;
+            irModes = new XnMapOutputMode[irModeCount];
+            status = irData->GetSupportedMapOutputModes( irModes, irModeCount );
+            if ( XN_STATUS_OK != status ) {
+                cout << "[IR] GetSupportedMapOutputModes fail" << endl;
+            } else {
+                unsigned int answer = 1;
+                unsigned int i;
+                cout << endl << endl;
+                cout << "Available options for IR : " << endl;
+                for ( i = 0; i < irModeCount; i++ ) {
+                    cout << i + 1 << ") ";
+                    showResolution ( &irModes[i] );
+                }
+                cout << ++i << ") Use SDK default " << endl;
+                cout << "Please select resolution and FPS for IR : ";
+                cin >> answer;
+                if ( answer > irModeCount ) {
+                    answer = 1;
+                }
+                irOutputMode->nXRes = irModes[answer-1].nXRes;
+                irOutputMode->nYRes = irModes[answer-1].nYRes;
+                irOutputMode->nFPS = irModes[answer-1].nFPS;
+            }
+            delete [] irModes;
+        }
+    }
 }
 
 void onMouse( int Event, int x, int y, int flags, void* param )
@@ -76,7 +204,7 @@ int _tmain(int argc, _TCHAR* argv[])
 {
     int option = getUserInput();
 
-    if ( 0 == option ) {
+    if ( -1 == option ) {
         cout << "Exit program!" << endl;
         return 0;
     }
@@ -93,6 +221,10 @@ int _tmain(int argc, _TCHAR* argv[])
 
     XnFPSData xnDepthFPS, xnColorFPS, xnIrFPS;
 
+    XnMapOutputMode mapDepthOutputMode;
+    XnMapOutputMode mapImageOutputMode;
+    XnMapOutputMode mapIrOutputMode;
+
     mContext.Init();
 
     if ( option & DEPTH ) {
@@ -108,17 +240,46 @@ int _tmain(int argc, _TCHAR* argv[])
         xnFPSInit(&xnIrFPS, FPG_AVG_COUNT);
     }
 
+    getResolutionSetting( option, &mDepthGen, &mImageGen, &mIrGen, &mapDepthOutputMode, &mapImageOutputMode, &mapIrOutputMode);
+
+    if ( option & DEPTH ) {
+        mDepthGen.SetMapOutputMode( mapDepthOutputMode );
+        namedWindow( "Depth view", CV_WINDOW_NORMAL );
+    }
+    if ( option & IMAGE ) {
+        mImageGen.SetMapOutputMode( mapImageOutputMode );
+        namedWindow( "Color view", CV_WINDOW_NORMAL );
+    }
+    if ( option & IR ) {
+        mIrGen.SetMapOutputMode( mapIrOutputMode );
+        namedWindow( "IR view", CV_WINDOW_NORMAL );
+    }
+
     mContext.StartGeneratingAll();
 
     char fpsstr[7];
     char xyzstr[128];
     double tStart = 0;
-
-    while ( !xnOSWasKeyboardHit() )
+    bool quit = false;
+    bool capture = false;
+    bool showText = true;
+    bool fullScreen = false;
+    vector<int> quality;
+    quality.push_back(CV_IMWRITE_PNG_COMPRESSION);
+    quality.push_back(0);
+    while ( true )
     {
         tStart = (double)getTickCount();
         mContext.WaitAndUpdateAll();
-
+        if ( fullScreen ) {
+            if ( option & DEPTH ) setWindowProperty( "Depth view", CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN );
+            if ( option & IMAGE ) setWindowProperty( "Color view", CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN );
+            if ( option & IR ) setWindowProperty( "IR view", CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN );
+        } else {
+            if ( option & DEPTH ) setWindowProperty( "Depth view", CV_WND_PROP_FULLSCREEN, 0 );
+            if ( option & IMAGE ) setWindowProperty( "Color view", CV_WND_PROP_FULLSCREEN, 0 );
+            if ( option & IR ) setWindowProperty( "IR view", CV_WND_PROP_FULLSCREEN, 0 );
+        }
         if ( option & DEPTH ) {
             mDepthGen.GetMetaData( depthData );
             Mat imgDepth( depthData.FullYRes(), depthData.FullXRes(), CV_16UC1, ( void* )depthData.Data() );
@@ -130,12 +291,19 @@ int _tmain(int argc, _TCHAR* argv[])
             bitwise_and( img8bit3ChDepth, img8bit3ChMask, img8bit3ChDepth );
             xnFPSMarkFrame(&xnDepthFPS);
             sprintf_s(fpsstr, sizeof(fpsstr), "%.2f", xnFPSCalc(&xnDepthFPS));
-            putText(img8bit3ChDepth, string("FPS:") + fpsstr, Point(5, 20), FONT_HERSHEY_DUPLEX, (depthData.FullXRes()>320)?1.0:0.5, Scalar(255, 255, 255));
+            if ( showText ) {
+                putText(img8bit3ChDepth, string("FPS:") + fpsstr, Point(5, 20), FONT_HERSHEY_DUPLEX, (depthData.FullXRes()>320)?1.0:0.5, Scalar(255, 255, 255));
+            }
             Zres = depthData(Xres, Yres);
             sprintf_s(xyzstr, sizeof(xyzstr), "X : %d, Y : %d, Depth : %u", Xres, Yres, Zres);
-            putText(img8bit3ChDepth, xyzstr, Point(5, 50), FONT_HERSHEY_DUPLEX, (depthData.FullXRes()>320)?1.0:0.5, Scalar(255, 255, 255));
+            if ( showText ) {
+                putText(img8bit3ChDepth, xyzstr, Point(5, 50), FONT_HERSHEY_DUPLEX, (depthData.FullXRes()>320)?1.0:0.5, Scalar(255, 255, 255));
+            }
             imshow( "Depth view", img8bit3ChDepth );
-            setMouseCallback( "Depth view", onMouse, NULL );
+            if ( capture ) {
+                imwrite( "depth_" + std::to_string(depthData.FrameID()) + ".png", img8bit3ChDepth, quality );
+            }
+            cv::setMouseCallback( "Depth view", onMouse, NULL );
         }
 
         if ( option & IMAGE ) {
@@ -145,8 +313,13 @@ int _tmain(int argc, _TCHAR* argv[])
             cvtColor( imgColor, imgBGRColor, CV_RGB2BGR );
             xnFPSMarkFrame(&xnColorFPS);
             sprintf_s(fpsstr, sizeof(fpsstr), "%.2f", xnFPSCalc(&xnColorFPS));
-            putText(imgBGRColor, string("FPS:") + fpsstr, Point(5, 20), FONT_HERSHEY_DUPLEX, (colorData.FullXRes()>320)?1.0:0.5, Scalar(200, 0, 0));
+            if ( showText ) {
+                putText(imgBGRColor, string("FPS:") + fpsstr, Point(5, 20), FONT_HERSHEY_DUPLEX, (colorData.FullXRes()>320)?1.0:0.5, Scalar(200, 0, 0));
+            }
             imshow( "Color view", imgBGRColor );
+            if ( capture ) {
+                imwrite( "image_" + std::to_string(colorData.FrameID()) + ".png", imgBGRColor, quality );
+            }
         }
 
         if ( option & IR ) {
@@ -156,12 +329,47 @@ int _tmain(int argc, _TCHAR* argv[])
             imgIR.convertTo( img8bitIR, CV_8U, 255.0 / 4096 );
             xnFPSMarkFrame(&xnIrFPS);
             sprintf_s(fpsstr, sizeof(fpsstr), "%.2f", xnFPSCalc(&xnIrFPS));
-            putText(img8bitIR, string("FPS:") + fpsstr, Point(5, 20), FONT_HERSHEY_DUPLEX, (irData.FullXRes()>320)?1.0:0.5, Scalar(200, 0, 0));
+            if ( showText ) {
+                putText(img8bitIR, string("FPS:") + fpsstr, Point(5, 20), FONT_HERSHEY_DUPLEX, (irData.FullXRes()>320)?1.0:0.5, Scalar(200, 0, 0));
+            }
             imshow( "IR view", img8bitIR );
+            if ( capture ) {
+                imwrite( "ir_" + std::to_string(irData.FrameID()) + ".png", img8bitIR, quality );
+            }
         }
 
-        waitKey( 1 );
+        int keyInput = waitKey( 1 );
+        if ( keyInput != -1 ) {
+            switch ( keyInput ) {
+            case 'Q': // Q = 81
+            case 'q': // q = 113
+                //q for exit
+                quit = true;
+                break;
+            case 'C': // C = 67
+            case 'c': // c = 99
+                // depth
+                capture = true;
+                break;
+            case 'F': // F = 70
+            case 'f': // f = 102
+                showText = (showText)?false:true;
+                break;
+            case 'W':
+            case 'w':
+                fullScreen = (fullScreen)?false:true;
+                break;
+            default:
+                break;
+            }
+        } else {
+            capture = false;
+        }
+        if ( quit ) {
+            break;
+        }
     }
+    mContext.StopGeneratingAll();
     if ( option & DEPTH ) {
         mDepthGen.Release();
     }
@@ -172,6 +380,7 @@ int _tmain(int argc, _TCHAR* argv[])
         mIrGen.Release();
     }
     mContext.Release();
+    destroyAllWindows();
     return 0;
 }
 
